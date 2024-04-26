@@ -22,6 +22,12 @@ describe("messages", () => {
   const bondPrivateKey = PrivateKey.random();
   const bond = bondPrivateKey.toPublicKey();
 
+  const MPrivateKey = PrivateKey.random();
+  const M = MPrivateKey.toPublicKey();
+
+  const usurperPrivateKey = PrivateKey.random();
+  const usurper = usurperPrivateKey.toPublicKey();
+
   const jamesBondId = Field(7);
 
   const jamesBondMessage = new SpyMessage({
@@ -61,16 +67,16 @@ describe("messages", () => {
 
   beforeAll(async () => {
     await appChain.start();
-    appChain.setSigner(bondPrivateKey);
     messages = appChain.runtime.resolve("Messages");
   });
 
 
     it("only processes messages for recruited spies", async () => {
+      appChain.setSigner(bondPrivateKey);
       const tx = await appChain.transaction(bond, () => {
         messages.receiveMessage(jamesBondMessage);
       });
-  
+      
       await tx.sign();
       await tx.send();
   
@@ -80,17 +86,70 @@ describe("messages", () => {
       expect(block?.transactions[0].statusMessage).toBe(ERRORS.spyNotRecruited);
     });
 
+    it("can set a spy master when there is none", async () => {
+      appChain.setSigner(MPrivateKey);
+      const tx = await appChain.transaction(M, () => {
+        messages.setSpyMaster();
+      });
+      
+      await tx.sign();
+      await tx.send();
+  
+      const block = await appChain.produceBlock();
+      const currentSpyMaster = await appChain.query.runtime.Messages.spyMaster.get();
+
+      expect(block?.transactions[0].status.toBoolean()).toBe(true);
+      expect(currentSpyMaster).toMatchObject(M);
+    });
+
+    it("cannot set a spy master when there is already one", async () => {
+      appChain.setSigner(usurperPrivateKey);
+      const tx = await appChain.transaction(usurper, () => {
+        messages.setSpyMaster();
+      });
+      
+      await tx.sign();
+      await tx.send();
+  
+      const block = await appChain.produceBlock();
+      const currentSpyMaster = await appChain.query.runtime.Messages.spyMaster.get();
+
+      expect(block?.transactions[0].status.toBoolean()).toBe(false);
+      expect(block?.transactions[0].statusMessage).toBe(ERRORS.onlyOneSpyMaster);
+      expect(currentSpyMaster).toMatchObject(M);
+    });
+
+    it("only spy master can recruit", async () => {
+      appChain.setSigner(usurperPrivateKey);
+      const tx = await appChain.transaction(usurper, () => {
+        messages.recruitSpy(Field(7), Field(69420));
+      });
+
+      await tx.sign();
+      await tx.send();
+
+      const block = await appChain.produceBlock();
+
+      expect(block?.transactions[0].status.toBoolean()).toBe(false);
+      expect(block?.transactions[0].statusMessage).toBe(ERRORS.onlySpyMasterCanRecruit);
+    });
+
     describe("all about a recruited spy", () => {
 
       beforeAll(async () => {
-        const tx = await appChain.transaction(bond, () => {
+        // let M recruit james Bond - only she can recuit, as she is the spy master
+        appChain.setSigner(MPrivateKey);
+        const tx = await appChain.transaction(M, () => {
           messages.recruitSpy(Field(7), Field(69420));
         });
-    
+        
         await tx.sign();
         await tx.send();
     
         await appChain.produceBlock();
+
+        // all the following actions in the test will be taken by 007
+        appChain.setSigner(bondPrivateKey);
       });
 
 

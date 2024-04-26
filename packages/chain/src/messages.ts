@@ -16,7 +16,10 @@ export const ERRORS = {
     codeMismatch: "Security code does not match",
     messageTooShort: "Message is less than 12 characters long",
     messageTooLong: "Message is more than 12 characters long",
-    messageNumber: "Message number is not greater than the last message number"
+    messageNumber: "Message number is not greater than the last message number",
+    onlyOneSpyMaster: "There can be only one master",
+    thereMustBeASpyMaster: "There must be a spy master to recruit spies",
+    onlySpyMasterCanRecruit: "Only the spy master can recruit spies"
   };
 
 // this is the incoming messages
@@ -41,11 +44,28 @@ export class Messages extends RuntimeModule<unknown> {
         SpyInfo
     );
 
+   // address of the dude that recruits spies, and sets spy secrets
+   @state() public spyMaster = State.from<PublicKey>(PublicKey);
+
+   // make a spy master, and only change it if its blank
+   @runtimeMethod()
+   public setSpyMaster(): void {
+       const sender = this.transaction.sender.value;
+       const currentSpyMaster = this.spyMaster.get();
+       assert(currentSpyMaster.isSome.not(), ERRORS.onlyOneSpyMaster);
+       this.spyMaster.set(sender);
+   }    
+
     @runtimeMethod()
     public recruitSpy(
         agentId: Field, 
         securityCode: Field
     ): void {
+        const sender = this.transaction.sender.value;
+        const curSpyMaster = this.spyMaster.get();
+        assert(curSpyMaster.isSome, ERRORS.thereMustBeASpyMaster);
+        assert(curSpyMaster.value.equals(sender), ERRORS.onlySpyMasterCanRecruit);
+
         const spyInfo = new SpyInfo({ lastMessageNumber: INITIAL_MESSAGE_NUMBER, securityCode });
         this.spyDetails.set(agentId, spyInfo);
     }
